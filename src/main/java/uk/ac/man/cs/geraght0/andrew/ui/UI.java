@@ -33,6 +33,7 @@ import javafx.scene.control.RadioButton;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TitledPane;
 import javafx.scene.control.ToggleGroup;
+import javafx.scene.image.Image;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.GridPane;
@@ -137,6 +138,9 @@ public class UI extends Application {
       radioButton.setSelected(true);
     }
 
+    primaryStage.getIcons()
+                .add(new Image(UI.class.getResourceAsStream("/images/icon.png")));
+    primaryStage.setResizable(false);
     primaryStage.setTitle("Tools for Andrew Ward-Jones");
     primaryStage.setScene(scene);
     primaryStage.show();

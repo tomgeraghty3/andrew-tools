@@ -1,8 +1,13 @@
 package uk.ac.man.cs.geraght0.andrew.ui;
 
+import com.google.common.collect.Lists;
+import com.iberdrola.dtp.util.SpCollectionUtils;
 import java.io.File;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ExecutorService;
@@ -13,17 +18,22 @@ import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
 import javafx.beans.binding.NumberBinding;
+import javafx.beans.value.ObservableValue;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Scene;
+import javafx.scene.control.Accordion;
 import javafx.scene.control.Alert;
+import javafx.scene.control.Alert.AlertType;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.RadioButton;
 import javafx.scene.control.TextArea;
+import javafx.scene.control.TitledPane;
 import javafx.scene.control.ToggleGroup;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
@@ -33,15 +43,20 @@ import javafx.scene.text.Font;
 import javafx.scene.text.TextAlignment;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.MultiValuedMap;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.util.ResourceUtils;
 import uk.ac.man.cs.geraght0.andrew.AndrewToolApplication;
 import uk.ac.man.cs.geraght0.andrew.config.Config;
 import uk.ac.man.cs.geraght0.andrew.model.DirGroupOption;
+import uk.ac.man.cs.geraght0.andrew.model.FileResult;
 import uk.ac.man.cs.geraght0.andrew.service.Backend;
 
+@Slf4j
 public class UI extends Application {
+
   private ConfigurableApplicationContext applicationContext;
 
   //UI Constants
@@ -54,16 +69,23 @@ public class UI extends Application {
   //UI Components
   private GridPane grid;
   private TextArea txtDirInput;
+  private DirectoryChooser fcInput;
   private TextArea txtDirOutput;
+  private DirectoryChooser fcOutput;
   private TextArea txtExtension;
+  private ToggleGroup groupByOption;
   private Map<DirGroupOption, RadioButton> optionToButton;
   private ProgressBar pg;
+  private Accordion accordion;
+  private FilesMovedPanel filesMovedPanel;
+  private FilesFailedPanel filesProblemPanel;
 
   //State
   private int currentRow;
   private Backend backend;
   private Config config;
   private ExecutorService executorService;
+  private List<Button> selectButtons;
 
 
   @Override
@@ -77,6 +99,7 @@ public class UI extends Application {
     backend = applicationContext.getBean(Backend.class);
     config = applicationContext.getBean(Config.class);
     executorService = Executors.newSingleThreadExecutor();
+    selectButtons = new ArrayList<>();
   }
 
   @Override
@@ -94,9 +117,17 @@ public class UI extends Application {
 
     if (config.getLastInputDirectory() != null) {
       txtDirInput.setText(config.getLastInputDirectory());
+      File in = new File(config.getLastInputDirectory());
+      if (in.exists()) {
+        fcInput.setInitialDirectory(in);
+      }
     }
     if (config.getLastOutputDirectory() != null) {
       txtDirOutput.setText(config.getLastOutputDirectory());
+      File out = new File(config.getLastOutputDirectory());
+      if (out.exists()) {
+        fcOutput.setInitialDirectory(out);
+      }
     }
     if (config.getLastExtension() != null) {
       txtExtension.setText(config.getLastExtension());
@@ -106,7 +137,7 @@ public class UI extends Application {
       radioButton.setSelected(true);
     }
 
-    primaryStage.setTitle("Transformation UI for Alterian based content");
+    primaryStage.setTitle("Tools for Andrew Ward-Jones");
     primaryStage.setScene(scene);
     primaryStage.show();
   }
@@ -118,12 +149,14 @@ public class UI extends Application {
     grid.setAlignment(Pos.CENTER);
     grid.setPadding(new Insets(10, 10, 10, 10));
 
-    //Top
+    //Row 1
     createDirInfo(true);
+    //Row 2
     createDirInfo(false);
-
-    //File selection
-    createFileGroupSelection();
+    //Row 3
+    createRowThree();
+    //Row 4
+    createResultsAccordion();
 
     //Scaling
     grid.setMinSize(WIDTH_OVERALL, HEIGHT_OVERALL);
@@ -152,25 +185,27 @@ public class UI extends Application {
     textArea.setEditable(false);
     textArea.setMinWidth(MIN_TXT_WIDTH);
     textArea.setMaxHeight(MAX_TXT_HEIGHT);
+    final DirectoryChooser fc = new DirectoryChooser();
     if (input) {
       this.txtDirInput = textArea;
+      this.fcInput = fc;
     } else {
       this.txtDirOutput = textArea;
+      this.fcOutput = fc;
     }
 
     //Create Button
-    final DirectoryChooser fc = new DirectoryChooser();
     final Button btnSelect = new Button("Select");
     Font font = new Font(13);
     btnSelect.setFont(font);
     btnSelect.setOnMouseClicked(e -> {
       File selected = fc.showDialog(null);
-      if (selected == null) {
-        textArea.setText("");
-      } else {
+      if (selected != null) {
         textArea.setText(selected.getAbsolutePath());
+        fc.setInitialDirectory(selected);
       }
     });
+    selectButtons.add(btnSelect);
 
     //Create layout
     HBox layInput = new HBox(textArea, btnSelect);
@@ -185,11 +220,11 @@ public class UI extends Application {
     currentRow++;
   }
 
-  private void createFileGroupSelection() {
+  private void createRowThree() {
     //Create info label
-    Label lblInfo = new Label("Group pairs of files by:");
+    Label lblInfo = new Label("Directory names:");
     //Create radio buttons
-    final ToggleGroup groupByOption = new ToggleGroup();
+    groupByOption = new ToggleGroup();
     optionToButton = Arrays.stream(DirGroupOption.values())
                            .collect(Collectors.toMap(Function.identity(), fgo -> {
                              RadioButton rb = new RadioButton(fgo.getFriendlyStr());
@@ -229,28 +264,10 @@ public class UI extends Application {
     borderPane.setLeft(layControls);
     borderPane.setRight(layExtension);
 
-    Button btnGo = new Button("Pair files\ninto folders");
+    final Button btnGo = new Button("Pair files\ninto folders");
     btnGo.setTextAlignment(TextAlignment.CENTER);
-    btnGo.setOnMouseClicked(event -> {
-      RadioButton btn = (RadioButton) groupByOption.getSelectedToggle();
-      DirGroupOption option = DirGroupOption.parse(btn.getText())
-                                            .orElseThrow(() -> new IllegalStateException("Internal error parsing back from radio buttons"));
-
-      pg.setVisible(true);
-      btnGo.setDisable(true);
-      executorService.submit(() -> {
-        try {
-          backend.process(txtDirInput.getText(), txtDirOutput.getText(), option, txtExtension.getText());
-        } catch (Exception e) {
-          Platform.runLater(() -> {
-            new Alert(Alert.AlertType.ERROR, e.getMessage()).showAndWait();
-          });
-        } finally {
-          pg.setVisible(false);
-          btnGo.setDisable(false);
-        }
-      });
-    });
+    btnGo.setOnMouseClicked(this::onGoClick);
+    selectButtons.add(btnGo);
     HBox layRow = new HBox(borderPane, btnGo);
     layRow.setSpacing(20);
     layRow.setAlignment(Pos.CENTER);
@@ -261,47 +278,84 @@ public class UI extends Application {
     pg = new ProgressBar();
     pg.setMinWidth(MIN_TXT_WIDTH);
     pg.setVisible(false);
-    grid.add(pg, 0, currentRow + 5);
+    currentRow += 5;
+    grid.add(pg, 0, currentRow);
   }
 
-//  private Button generateButton() {
-//    btnTransform = new Button("Generate");
-//			btnTransform.setOnMouseClicked(e -> {
-//				RadioButton btn = (RadioButton) groupSelection.getSelectedToggle();
-//				TransformationOption transformationOption = SpEnumUtils.parseForExpected(TransformationOption.class, btn.getText());
-//				log.info("Starting transformation for option {}", transformationOption);
-//
-//				if (StringUtils.isEmpty(txtInput.getText())) {
-//					new Alert(Alert.AlertType.ERROR, "No input was provided").showAndWait();
-//				} else {
-//					try {
-//						AbsLineTransformer<?, ?> transformer = transformationOption.createTransformer(applicationContext);
-//						transformer.convertAllLines(txtInput.getText());
-//						List<String> convertedWithWarnings = transformer.validateConvertedLines();
-//						boolean permittedToContinue = true;
-//						if (!convertedWithWarnings.isEmpty()) {
-//							String txt = "Given the following warnings; do you want to continue?"
-//													 + System.lineSeparator()
-//													 + convertedWithWarnings.stream()
-//																									.collect(Collectors.joining(System.lineSeparator()));
-//							Alert alert = new Alert(Alert.AlertType.CONFIRMATION, txt, ButtonType.YES, ButtonType.NO);
-//							Optional<ButtonType> bt = alert.showAndWait();
-//							permittedToContinue = bt.isPresent() && bt.get()
-//																												.equals(ButtonType.YES);
-//						}
-//
-//						if (permittedToContinue) {
-//							Object converted = transformer.getFinalFormat();
-//							txtOutput.setText(converted.toString());
-//						} else {
-//							new Alert(Alert.AlertType.INFORMATION, "The conversion was cancelled").show();
-//						}
-//					} catch (Exception ex) {
-//						new Alert(Alert.AlertType.ERROR, "An error occurred transforming input: " + ex.getMessage()).showAndWait();
-//					}
-//				}
-//			});
+  private void createResultsAccordion() {
+    filesMovedPanel = new FilesMovedPanel();
+    filesProblemPanel = new FilesFailedPanel();
+    filesMovedPanel.setDisable(true);
+    filesProblemPanel.setDisable(true);
+    accordion = new Accordion(filesMovedPanel, filesProblemPanel);
+    accordion.expandedPaneProperty()
+             .addListener((ObservableValue<? extends TitledPane> property, final TitledPane oldPane, final TitledPane newPane) -> {
+               if (oldPane != null) {
+                 oldPane.setCollapsible(true);
+               }
+               if (newPane != null) {
+                 Platform.runLater(() -> newPane.setCollapsible(false));
+               }
+             });
+    accordion.setExpandedPane(filesMovedPanel);
+    grid.add(accordion, 0, currentRow);
+    currentRow++;
+  }
 
-//    return btnTransform;
-//  }
+  private void onGoClick(final MouseEvent mouseEvent) {
+    RadioButton btn = (RadioButton) groupByOption.getSelectedToggle();
+    DirGroupOption option = DirGroupOption.parse(btn.getText())
+                                          .orElseThrow(() -> new IllegalStateException("Internal error parsing back from radio buttons"));
+
+    getComponentsToShowDuringProgress().forEach(n -> n.setVisible(true));
+    getComponentsToHideDuringProgress().forEach(n -> n.setVisible(false));
+    getComponentsToToggleDisableDuringProgress().forEach(b -> b.setDisable(true));
+    filesMovedPanel.setDisable(false);
+    filesProblemPanel.setDisable(false);
+    executorService.submit(() -> {
+      try {
+        List<FileResult> results = backend.process(txtDirInput.getText(), txtDirOutput.getText(), option, txtExtension.getText());
+        MultiValuedMap<Boolean, FileResult> problemToFileResult = SpCollectionUtils.toMultiMap(results, fr -> fr.getProblem() == null,
+                                                                                               Function.identity());
+        Collection<FileResult> problemFiles = problemToFileResult.get(false);
+        Collection<FileResult> happyFiles = problemToFileResult.get(true);
+        Platform.runLater(() ->
+                              updateResults(happyFiles, problemFiles)
+        );
+      } catch (Exception e) {
+        log.error("Uncaught error", e);
+        Platform.runLater(() -> new Alert(AlertType.ERROR, e.getMessage()).showAndWait());
+      } finally {
+        getComponentsToShowDuringProgress().forEach(n -> n.setVisible(false));
+        getComponentsToHideDuringProgress().forEach(n -> n.setVisible(true));
+        getComponentsToToggleDisableDuringProgress().forEach(n -> n.setDisable(false));
+      }
+    });
+  }
+
+  private List<Node> getComponentsToToggleDisableDuringProgress() {
+    List<Node> components = Lists.newArrayList(selectButtons);
+    components.add(txtExtension);
+    components.addAll(optionToButton.values());
+    return components;
+  }
+
+  private List<Node> getComponentsToShowDuringProgress() {
+    return Lists.newArrayList(pg);
+  }
+
+  private List<Node> getComponentsToHideDuringProgress() {
+    return Lists.newArrayList(filesMovedPanel, filesProblemPanel);
+  }
+
+
+  private void updateResults(final Collection<FileResult> happyFiles, final Collection<FileResult> problemFiles) {
+    filesMovedPanel.setItems(happyFiles);
+    filesProblemPanel.setItems(problemFiles);
+    if (happyFiles.isEmpty() && !problemFiles.isEmpty()) {
+      accordion.setExpandedPane(filesProblemPanel);
+    } else {
+      accordion.setExpandedPane(filesMovedPanel);
+    }
+  }
 }

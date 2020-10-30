@@ -1,15 +1,27 @@
 package uk.ac.man.cs.geraght0.andrew.service;
 
+import com.iberdrola.dtp.util.SpCollectionUtils;
+import com.iberdrola.dtp.util.constants.Separator;
 import java.io.File;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map.Entry;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.MultiValuedMap;
+import org.apache.commons.io.FileUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import uk.ac.man.cs.geraght0.andrew.config.Config;
+import uk.ac.man.cs.geraght0.andrew.constans.Constants;
 import uk.ac.man.cs.geraght0.andrew.model.DirGroupOption;
+import uk.ac.man.cs.geraght0.andrew.model.FileResult;
+import uk.ac.man.cs.geraght0.andrew.service.strategy.DirGroupStrategy;
 
 @Slf4j
 @Service
@@ -18,7 +30,7 @@ public class Backend {
   private final Config config;
 
   @SneakyThrows
-  public void process(final String inDir, final String outDir, final DirGroupOption option, final String extension) {
+  public List<FileResult> process(final String inDir, final String outDir, final DirGroupOption option, final String extension) {
     //Validate
     File in = validateDir(inDir, "Input");
     File out = validateDir(outDir, "Output");
@@ -35,17 +47,22 @@ public class Backend {
     //Check directory isn't empty
     List<File> eligibleFiles = getEligibleFiles(in, ext);
     log.info("Found {} file(s) in {} ending with extension {}", eligibleFiles.size(), in.getAbsolutePath(), ext);
-    proessFiles(eligibleFiles, option);
+    List<FileResult> results = deduceFileActions(eligibleFiles, out, option);
+    log.info("Actions: {}", SpCollectionUtils.toString(results, false, Separator.NEWLINE));
+    results = validateDirectorySizes(results, option);
+    log.info("Validated: {}", SpCollectionUtils.toString(results, false, Separator.NEWLINE));
 
-    Thread.sleep(5000);
-  }
+    doActions(results);
+    log.info("Results: {}", SpCollectionUtils.toString(results, false, Separator.NEWLINE));
 
-  private void proessFiles(final List<File> eligibleFiles, final DirGroupOption option) {
+    Thread.sleep(500);
 
+    return results;
   }
 
   private List<File> getEligibleFiles(final File in, final String extension) {
-    File[] files = in.listFiles(pathname -> pathname.getName().toLowerCase()
+    File[] files = in.listFiles(pathname -> pathname.getName()
+                                                    .toLowerCase()
                                                     .endsWith(extension.toLowerCase()));
     if (files == null || files.length == 0) {
       throw new IllegalArgumentException(String.format("There are no files with extension \"%s\" in \"%s\"", extension, in.getAbsolutePath()));
@@ -79,6 +96,73 @@ public class Backend {
   private void validateOption(final DirGroupOption option) {
     if (option == null) {
       throw new IllegalArgumentException("A file group option must be selected");
+    }
+  }
+
+
+  List<FileResult> deduceFileActions(final List<File> eligibleFiles, final File directory, final DirGroupOption option) {
+    DirGroupStrategy strategy = option.getStrategySupplier()
+                                      .get();
+    Collections.sort(eligibleFiles);
+    return eligibleFiles.stream()
+                        .map(f -> strategy.toResult(f, directory))
+                        .collect(Collectors.toList());
+  }
+
+  List<FileResult> validateDirectorySizes(final List<FileResult> results, DirGroupOption option) {
+    DirGroupStrategy strategy = option.getStrategySupplier()
+                                      .get();
+    List<FileResult> in = results.stream()
+                                 .filter(r -> r.getProblem() == null)
+                                 .collect(Collectors.toList());
+    final MultiValuedMap<File, FileResult> dirToFile = SpCollectionUtils.toMultiMap(in,
+                                                                                    FileResult::getDestinedDirectory,
+                                                                                    Function.identity());
+    boolean changesMade = false;
+    for (Entry<File, Collection<FileResult>> e : dirToFile.asMap()
+                                                          .entrySet()) {
+      if (e.getValue()
+           .size() < 2) {
+        e.getValue()
+         .forEach(fr -> fr.setProblem(Constants.FILE_ALONE));
+        changesMade = true;
+      } else if (e.getValue()
+                  .size() > 2) {
+        e.getValue()
+         .forEach(fr -> fr.setProblem(Constants.FILE_TOO_MANY));
+        changesMade = true;
+      }
+    }
+
+    if (changesMade) {
+      strategy.retrospectiveCorrection(results);
+    }
+
+    return results;
+  }
+
+  private void doActions(final List<FileResult> results) {
+    List<FileResult> actions = results.stream()
+                                      .filter(r -> r.getProblem() == null)
+                                      .collect(Collectors.toList());
+    FileResult toDo;
+    for (FileResult action : actions) {
+      toDo = action;
+      try {
+        log.debug("Starting: {}", toDo);
+        if (!toDo.getDestinedDirectory()
+                 .exists()) {
+          log.debug("\tCreating destination dir: {}", toDo.getDestinedDirectory()
+                                                          .getAbsolutePath());
+          FileUtils.forceMkdir(toDo.getDestinedDirectory());
+        }
+
+        FileUtils.moveFile(action.getFile(), new File(toDo.getDestinedDirectory(), action.getFile()
+                                                                                         .getName()));
+      } catch (Exception e) {
+        toDo.setProblem("Unexpected error: " + e.getMessage());
+        log.error("Error executing {}: {}", toDo, e.getMessage(), e);
+      }
     }
   }
 }

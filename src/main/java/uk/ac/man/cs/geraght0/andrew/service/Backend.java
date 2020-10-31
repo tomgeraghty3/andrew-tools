@@ -1,13 +1,18 @@
 package uk.ac.man.cs.geraght0.andrew.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.google.common.collect.Streams;
 import com.iberdrola.dtp.util.SpCollectionUtils;
 import com.iberdrola.dtp.util.constants.Separator;
 import java.io.File;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -15,8 +20,10 @@ import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.MultiValuedMap;
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang3.math.NumberUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.web.reactive.function.client.WebClient;
 import uk.ac.man.cs.geraght0.andrew.config.Config;
 import uk.ac.man.cs.geraght0.andrew.constans.Constants;
 import uk.ac.man.cs.geraght0.andrew.model.DirGroupOption;
@@ -27,7 +34,9 @@ import uk.ac.man.cs.geraght0.andrew.service.strategy.DirGroupStrategy;
 @Service
 @RequiredArgsConstructor
 public class Backend {
+
   private final Config config;
+  private final WebClient webClient;
 
   @SneakyThrows
   public List<FileResult> process(final String inDir, final String outDir, final DirGroupOption option, final String extension) {
@@ -164,5 +173,38 @@ public class Backend {
         log.error("Error executing {}: {}", toDo, e.getMessage(), e);
       }
     }
+  }
+
+  public Optional<String> checkForNewerVersion() {
+    if (!NumberUtils.isParsable(config.getVersion())) {
+      log.info("The version is currently \"{}\" which is likely not a release. Skipping check for newer release version", config.getVersion());
+    } else {
+      final double thisVersion = Double.parseDouble(config.getVersion());
+      try {
+        ArrayNode json = webClient.get()
+                                  .uri("https://api.github.com/repos/tomgeraghty3/andrew-tools/tags")
+                                  .retrieve()
+                                  .bodyToMono(ArrayNode.class)
+                                  .block();
+
+        Optional<JsonNode> max = Streams.stream(json.elements())
+                                        .max(Comparator.comparingDouble(node -> Double.parseDouble(node.get("name")
+                                                                                                       .asText())));
+        if (max.isPresent()) {
+          final String version = max.get()
+                                    .get("name")
+                                    .asText();
+          double latestVersion = Double.parseDouble(version);
+          String url = String.format("%s%s", "https://github.com/tomgeraghty3/andrew-tools/releases/tag/", version);
+          if (latestVersion > thisVersion) {
+            return Optional.of(url);
+          }
+        }
+      } catch (Exception e) {
+        log.error("Unable to determine if there was a new version. Continuing as if there isn't", e);
+      }
+    }
+
+    return Optional.empty();
   }
 }

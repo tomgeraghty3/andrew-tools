@@ -12,6 +12,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.web.reactive.function.client.WebClient;
 import uk.ac.man.cs.geraght0.andrew.config.Config;
 import uk.ac.man.cs.geraght0.andrew.constans.Constants;
 import uk.ac.man.cs.geraght0.andrew.model.DirGroupOption;
@@ -22,12 +23,14 @@ class BackendTest {
 
   @Mock
   private Config mockConfig;
+  @Mock
+  private WebClient webClient;
   private Backend classUnderTest;
 
   @BeforeEach
   void before() {
     MockitoAnnotations.initMocks(this);
-    classUnderTest = new Backend(mockConfig);
+    classUnderTest = new Backend(mockConfig, webClient);
   }
 
   @Test

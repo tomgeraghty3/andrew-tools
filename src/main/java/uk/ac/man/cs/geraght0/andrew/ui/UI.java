@@ -9,6 +9,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,6 +28,7 @@ import javafx.scene.control.Accordion;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Alert.AlertType;
 import javafx.scene.control.Button;
+import javafx.scene.control.ButtonType;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.RadioButton;
@@ -137,6 +139,25 @@ public class UI extends Application {
       final RadioButton radioButton = optionToButton.get(config.getLastDirGroupOption());
       radioButton.setSelected(true);
     }
+
+    //Check for newer version
+    Optional<String> newVersion = backend.checkForNewerVersion();
+    newVersion.ifPresent(version -> {
+      log.info("A new version was detected at \"{}\". Asking the user if they would like to visit that webpage", version);
+      Alert alert = new Alert(AlertType.WARNING, "A new version of the application was found. Do you want to go to GitHub to download the new version?",
+                              ButtonType.YES, ButtonType.NO);
+      alert.setHeaderText("New version found");
+      alert.setTitle("New version found");
+      Optional<ButtonType> button = alert.showAndWait();
+      if (button.isPresent()) {
+        log.info("The user clicked button: \"{}\"", button.get()
+                                                          .getText());
+        if (button.get()
+                  .equals(ButtonType.YES)) {
+          getHostServices().showDocument(version);
+        }
+      }
+    });
 
     primaryStage.getIcons()
                 .add(new Image(UI.class.getResourceAsStream("/images/icon.png")));

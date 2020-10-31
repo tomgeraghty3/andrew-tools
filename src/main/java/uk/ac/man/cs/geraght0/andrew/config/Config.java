@@ -38,6 +38,7 @@ public class Config {
   private String lastOutputDirectory;
   private DirGroupOption lastDirGroupOption;
   private String lastExtension;
+  private String version;
 
   public void save() {
     try (FileOutputStream out = createWriterToFile()) {

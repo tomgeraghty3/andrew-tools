@@ -24,12 +24,13 @@ import uk.ac.man.cs.geraght0.andrew.model.DirGroupOption;
 @Configuration
 @ConfigurationProperties(PREFIX)
 public class Config {
+
   //Constants
-  static final String PREFIX = "app";
-  private static final String PROP_FILE_NAME = "app.properties";
+  static final String PREFIX = "file-pairing";
+  public static final String PROP_FILE_NAME = String.format("%s.properties", PREFIX);
   private static final String APP_AUTHOR = "GERAGHT0";
-  private static final String APP_NAME = "ANDREW_TOOL";
-  private static final String VERSION = "1";
+  private static final String APP_NAME = "ANDREW_TOOLS";
+  private static final String VERSION = "1.2";
   public static final String PROPERTIES_FILE = String.format("%s\\%s", AppDirsFactory.getInstance()
                                                                                      .getSiteDataDir(APP_NAME, VERSION, APP_AUTHOR), PROP_FILE_NAME);
 
@@ -47,7 +48,8 @@ public class Config {
       final String identifier = "get";
       List<Method> methods = Arrays.stream(Config.class.getDeclaredMethods())
                                    .filter(f -> f.getName()
-                                                 .startsWith(identifier))
+                                                 .startsWith(identifier) && !f.getName()
+                                                                              .equals("getVersion"))
                                    .collect(Collectors.toList());
       for (Method method : methods) {
         char[] c = method.getName()

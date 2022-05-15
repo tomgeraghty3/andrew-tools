@@ -181,8 +181,10 @@ public class Backend {
     } else {
       final double thisVersion = Double.parseDouble(config.getVersion());
       try {
+        String url = "https://api.github.com/repos/tomgeraghty3/andrew-tools/tags";
+        log.info("Looking for a newer version (than {}) of the application by calling: {}", thisVersion, url);
         ArrayNode json = webClient.get()
-                                  .uri("https://api.github.com/repos/tomgeraghty3/andrew-tools/tags")
+                                  .uri(url)
                                   .retrieve()
                                   .bodyToMono(ArrayNode.class)
                                   .block();
@@ -195,7 +197,7 @@ public class Backend {
                                     .get("name")
                                     .asText();
           double latestVersion = Double.parseDouble(version);
-          String url = String.format("%s%s", "https://github.com/tomgeraghty3/andrew-tools/releases/tag/", version);
+          url = String.format("%s%s", "https://github.com/tomgeraghty3/andrew-tools/releases/tag/", version);
           if (latestVersion > thisVersion) {
             return Optional.of(url);
           }

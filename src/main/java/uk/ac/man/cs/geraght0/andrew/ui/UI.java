@@ -1,5 +1,7 @@
 package uk.ac.man.cs.geraght0.andrew.ui;
 
+import static org.springframework.util.ResourceUtils.CLASSPATH_URL_PREFIX;
+
 import com.google.common.collect.Lists;
 import com.iberdrola.dtp.util.SpCollectionUtils;
 import java.io.File;
@@ -13,6 +15,7 @@ import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.FutureTask;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import javafx.application.Application;
@@ -46,8 +49,10 @@ import javafx.scene.text.Font;
 import javafx.scene.text.TextAlignment;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
+import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.MultiValuedMap;
+import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.util.ResourceUtils;
@@ -90,15 +95,28 @@ public class UI extends Application {
   private ExecutorService executorService;
   private List<Button> selectButtons;
 
-
   @Override
+  @SneakyThrows
   public void init() {
     String[] args = getParameters().getRaw()
                                    .toArray(new String[0]);
-    this.applicationContext =
-        new SpringApplicationBuilder()
-            .sources(AndrewToolApplication.class)
-            .run(args);
+    try {
+      this.applicationContext =
+          new SpringApplicationBuilder()
+              .web(WebApplicationType.NONE)
+              .sources(AndrewToolApplication.class)
+              .run(args);
+    } catch (Exception e) {
+      final Runnable showDialog = () -> {
+        UiHelpers.alertError("The application cannot start: " + e.getMessage());
+      };
+
+      FutureTask<Void> showDialogTask = new FutureTask<>(showDialog, null);
+      Platform.runLater(showDialogTask);
+      showDialogTask.get();
+      throw e;
+    }
+
     backend = applicationContext.getBean(Backend.class);
     config = applicationContext.getBean(Config.class);
     executorService = Executors.newSingleThreadExecutor();
@@ -107,14 +125,17 @@ public class UI extends Application {
 
   @Override
   public void stop() {
-    this.applicationContext.close();
+    log.info("Stopping application");
+    executorService.shutdownNow();
+    applicationContext.close();
     Platform.exit();
+    log.info("Application stopped");
   }
 
   @Override
   public void start(Stage primaryStage) throws Exception {
     Scene scene = generateScene();
-    URL resource = ResourceUtils.getURL("style.css");
+    URL resource = ResourceUtils.getURL(String.format("%sstyles.css", CLASSPATH_URL_PREFIX));
     scene.getStylesheets()
          .addAll(resource.toExternalForm());
 
@@ -207,7 +228,6 @@ public class UI extends Application {
 
     //Create actual area to hold directory
     TextArea textArea = new TextArea();
-    textArea.setEditable(false);
     textArea.setMinWidth(MIN_TXT_WIDTH);
     textArea.setMaxHeight(MAX_TXT_HEIGHT);
     final DirectoryChooser fc = new DirectoryChooser();

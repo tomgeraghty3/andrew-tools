@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>uk.ac.man.cs.geraght0</groupId>
 	<artifactId>andrew-tool</artifactId>
-	<version>1.1</version>
+	<version>1.2</version>
 	<name>andrew-tool</name>
 	<description>Tools for Andrew</description>
 
